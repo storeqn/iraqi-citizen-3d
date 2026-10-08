@@ -1,25 +1,32 @@
-# Verification — 2026-10-08
+# Verification — المواطن ضد الغلاء 3D (2026-10-08)
 
 ## Executed successfully
 
-- npm install: dependencies installed and package-lock.json generated.
+- npm install: resolved dependencies and updated package-lock.json for version 2.
 - npm run check: TypeScript passed.
-- npm test: 10 tests passed, 0 failed.
-- npm run build: Vite production bundle completed; both index.html and admin.html emitted.
-- NullEngine smoke check: city initialization, Arabic Canvas textures, character rig transforms, collision coordinator, ray picking, NPC state transitions, and disposal.
-- Bundled official-original.glb: loaded through Babylon's glTF loader; verified Idle, Walk, HitReaction, and Fall animation groups.
-- Save tests: malformed data, invalid values, unavailable storage, and full storage do not block gameplay.
+- npm test: 31 tests passed, 0 failed (21 new/current-game checks plus 10 preserved regression tests).
+- npm run build: production bundle built for index.html and admin.html.
+- All eight mission logic paths tested for success/failure, funds, decisions, timing, and duplicate transactions.
+- Three stage-8 minigames: exact fuel amount, budget phone selection, and school/reserve decisions.
+- Progress tests: best-result aggregation, no repeated completion rewards, resume of market/bills/runner, corruption handling and ledger consistency.
+- Babylon NullEngine: city, expansion, fictional dollar, materials/textures, collision coordinator, ray picking and reachable destinations/market positions initialized.
+- Bundled citizen-original.glb loaded through Babylon's glTF loader with seven named animation groups and a moustache mesh.
+- Existing official-original.glb regression retained; no old assets removed.
 
-The initial tsx CLI test command failed because this environment disallows its IPC pipe. The final npm test uses node --import tsx --test and passed.
+The reachability check originally detected a taxi marker overlapping a vehicle clearance and stall interactions too near counters. These positions were corrected, then the final test suite passed.
 
-## Not executed
+## Browser/device limits
 
-No live WebGL browser session or screenshot, no Safari iOS/Chrome Android device tests, and no measured frame rate. The headless NullEngine check does not prove visual quality, touch behavior, Arabic text appearance on a specific device, or absence of GPU/driver errors. These remain required manual QA before production approval.
+No live browser, WebGL screenshot, or Safari/Android device test was executed. Playwright packages exist in the shared runtime, but no installed Chromium/Chrome binary was found at the checked standard paths; a browser was not installed for this task. NullEngine tests do not measure frame rate or validate GPU rendering, actual multi-touch, Arabic appearance on Safari, camera feel, or blackout-free operation on a physical device. Those checks remain outstanding.
 
-## Build observations
+## Build and performance observations
 
-Vite warns that some engine/loader chunks exceed 500KB uncompressed. Explicit Babylon module imports and lazy loading of the glTF loader reduced the initial bundle from the first full-barrel build. The largest shared engine chunk is approximately 869KB (211KB gzip), with the glTF chunk approximately 664KB (163KB gzip); the original GLB is approximately 292KB. No FPS claim has been verified.
+Build succeeds with Vite's warning about some chunks exceeding 500KB uncompressed. The shared sceneLoader/engine chunk is approximately 869KB (211KB gzip); lazy glTF chunk approximately 664KB (163KB gzip); the citizen GLB is approximately 627KB. Quality presets, capped render resolution, palm instancing, produce LOD, distant detail culling, and background rendering pause are implemented. 30/60fps remain targets, not measured results.
 
-## Deployment state
+## Scope and visual limits
 
-Source prepared for Cloudflare Pages: npm run build / dist. No Cloudflare deployment was performed by this task. See README for selecting the development branch or merging the pull request first.
+The main scene, locomotion, market purchasing, lane runner, currency and bill collisions are implemented. Stages 3–8 combine 3D navigation with HTML decision dialogs; they are not full driving/household physical simulations. The model is an original simplified cartoon asset with transform animation groups, not a polished commercial character or a face reconstructed from a photo. The graphics are not claimed to match the reference image's detail.
+
+## Publishing state
+
+Code delivered to the independent branch codex/citizen-vs-inflation with a pull request. Cloudflare account settings and the prior production branch were not changed. To preview the new game, set Cloudflare Pages Production branch to codex/citizen-vs-inflation, build command npm run build, output dist, NODE_VERSION=22.

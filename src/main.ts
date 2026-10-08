@@ -3,218 +3,371 @@ import "@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent";
 import "@babylonjs/core/Meshes/instancedMesh";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { Scene } from "@babylonjs/core/scene";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera";
-import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Color3 } from "@babylonjs/core/Maths/math.color";
-import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Ray } from "@babylonjs/core/Culling/ray";
-import { mount, show, txt, toast } from "./ui/ui";
-import "./ui/style.css";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { city } from "./world/city";
-import { character } from "./player/character";
+import { expansion, dollar } from "./world/expansion";
+import { label, material } from "./world/art";
+import { avatar } from "./player/avatar";
 import { Input } from "./controls/input";
-import { Round, spawnPoint, clearPoint, canHit } from "./gameplay/rules";
-import { readSave, writeSave } from "./utils/save";
 import { Audio } from "./core/audio";
-import { NPC, Definition } from "./npc/npc";
+import { Mission } from "./missions/session";
+import { goods, destinations } from "./data/missions";
+import { runnerItems, touching, laneX, RunItem } from "./minigames/runner";
+import { clearPoint } from "./gameplay/rules";
+import { loadProgress, saveProgress, complete, fresh } from "./utils/progress";
+import {
+  mount,
+  show,
+  txt,
+  toast,
+  progress,
+  refreshMenu,
+  drawChoices,
+  money,
+} from "./ui/ui";
+import "./ui/style.css";
 mount();
-const save = readSave(),
-  audio = new Audio();
-audio.muted = save.muted;
-txt("best", save.best);
-txt("mute", save.muted ? "الصوت: مكتوم" : "الصوت: يعمل");
+let saved = loadProgress();
+const audio = new Audio();
+audio.muted = saved.settings.muted;
+refreshMenu(saved);
 const canvas = document.querySelector<HTMLCanvasElement>("#game")!;
-let engine: Engine;
-try {
-  engine = new Engine(canvas, true, {
-    preserveDrawingBuffer: false,
-    stencil: true,
-    powerPreference: "high-performance",
-  });
-  boot(engine);
-} catch (e) {
+const fatal = (e: unknown) => {
+  txt("fatalText", "تأكد من WebGL ومتصفح حديث. " + String(e));
   show("loading", false);
-  txt("fatalText", "تأكد من تفعيل WebGL واستعمال متصفح حديث. " + String(e));
   show("fatal", true);
+};
+try {
+  const engine = new Engine(canvas, true, {
+    powerPreference: "high-performance",
+    stencil: true,
+  });
+  void boot(engine).catch((e) => {
+    engine.stopRenderLoop();
+    fatal(e);
+  });
+} catch (e) {
+  fatal(e);
 }
-function boot(engine: Engine) {
+async function boot(engine: Engine) {
+  progress(10, "تمت تهيئة محرك WebGL");
   const scene = new Scene(engine);
   scene.collisionsEnabled = true;
   const world = city(scene);
-  const player = character(scene);
-  player.root.position.set(0, 0, -5);
+  const extra = expansion(scene, world.obstacles);
+  progress(38, "تم بناء المدينة والبسطات والبيت");
+  const player = avatar(scene),
+    enemy = dollar(scene);
+  const camera = new FreeCamera("follow-camera", new Vector3(-5, 3, -3), scene);
+  camera.inputs.clear();
+  camera.minZ = 0.12;
+  camera.maxZ = 110;
+  camera.fov = 0.82;
+  scene.activeCamera = camera;
+  player.root.position.set(0, 0, -16);
   player.root.getChildMeshes().forEach((m) => world.shadow.addShadowCaster(m));
   const collider = MeshBuilder.CreateSphere(
-    "player-collider",
+    "collision-capsule",
     { diameter: 1 },
     scene,
   );
   collider.isVisible = false;
-  collider.ellipsoid.set(0.38, 0.8, 0.38);
-  collider.ellipsoidOffset.set(0, 0.85, 0);
-  collider.position.copyFrom(player.root.position);
-  const camera = new FreeCamera("third-person", new Vector3(0, 4, -10), scene);
-  camera.minZ = 0.15;
-  camera.maxZ = 110;
-  camera.fov = 0.88;
-  camera.inputs.clear();
-  scene.activeCamera = camera;
-  const input = new Input(canvas),
-    round = new Round();
-  let paused = false,
-    started = false,
-    ended = false,
+  collider.ellipsoid.set(0.4, 0.9, 0.4);
+  collider.ellipsoidOffset.set(0, 0.9, 0);
+  const input = new Input(canvas);
+  let mission: Mission | null = null,
+    paused = false,
+    finished = false,
     time = 0,
+    jump = 0,
     jumpV = 0,
-    jumpY = 0,
-    punchAge = -1,
-    cooldown = 0,
-    nextSpawn = 0,
-    serial = 0,
-    npcs: NPC[] = [],
-    peakCombo = 0;
-  let definitions: Definition[] = [
-    { id: "official-01", name: "أبو الدولار", model: null },
-  ];
-  void fetch("./characters.json")
-    .then((r) => {
-      if (!r.ok) throw Error("characters");
-      return r.json();
-    })
-    .then((d) => {
-      if (Array.isArray(d) && d.length)
-        definitions = d.filter(
-          (x) =>
-            typeof x.id === "string" &&
-            (!x.model || typeof x.model === "string"),
-        );
-      if (!definitions.length)
-        definitions = [{ id: "official-01", model: null }];
-    })
-    .catch(() => toast("تعذر تحميل تعريف الشخصيات؛ النموذج الأساسي جاهز"));
-  const settings = document.querySelector<HTMLSelectElement>("#quality")!;
-  settings.value = save.quality;
-  function quality() {
-    save.quality = settings.value as typeof save.quality;
-    const q = save.quality;
-    engine.setHardwareScalingLevel(
-      q === "low"
-        ? 2
-        : q === "medium"
-          ? Math.max(1, window.devicePixelRatio / 1.4)
-          : Math.max(0.7, 1 / window.devicePixelRatio),
-    );
-    world.sun.shadowEnabled = q !== "low";
-    world.shadow.getShadowMap()!.resize(q === "high" ? 1024 : 512);
+    poseAge = 0,
+    lastWave = 0,
+    saveAge = 0,
+    stepAge = 0,
+    runner: RunItem[] = [],
+    runnerMeshes: Map<string, Mesh> = new Map(),
+    markers: { mesh: Mesh; id: string; x: number; z: number }[] = [],
+    lastMap = 0,
+    frameCount = 0;
+  const choice = document.querySelector<HTMLDialogElement>("#choiceDialog")!;
+  const qualitySelect = document.querySelector<HTMLSelectElement>("#quality")!,
+    outfitSelect = document.querySelector<HTMLSelectElement>("#outfit")!;
+  qualitySelect.value = saved.settings.quality;
+  outfitSelect.value = saved.settings.outfit;
+  function configure() {
+    const q = saved.settings.quality,
+      dpr = Math.min(
+        window.devicePixelRatio || 1,
+        q === "high" ? 1.75 : q === "medium" ? 1.2 : 0.8,
+      );
+    engine.setHardwareScalingLevel(1 / dpr);
     scene.shadowsEnabled = q !== "low";
-    writeSave(save);
+    world.shadow.getShadowMap()!.resize(q === "high" ? 1024 : 512);
+    extra.details.forEach((n) =>
+      n
+        .getChildMeshes()
+        .filter((m) => m.name === "market-food")
+        .forEach((m, i) => m.setEnabled(q !== "low" || i % 2 === 0)),
+    );
+    player.outfit(
+      { white: "#f3f0e6", cream: "#ecd9b2", mint: "#bbd9c5" }[
+        saved.settings.outfit
+      ],
+    );
+    txt("mute", saved.settings.muted ? "الصوت مكتوم" : "الصوت يعمل");
+    audio.muted = saved.settings.muted;
+    saveProgress(saved);
   }
-  quality();
-  settings.addEventListener("change", quality);
+  configure();
+  qualitySelect.addEventListener("change", () => {
+    saved.settings.quality =
+      qualitySelect.value as typeof saved.settings.quality;
+    configure();
+  });
+  outfitSelect.addEventListener("change", () => {
+    saved.settings.outfit = outfitSelect.value as typeof saved.settings.outfit;
+    configure();
+  });
   document.querySelector("#mute")!.addEventListener("click", () => {
-    save.muted = !save.muted;
-    audio.muted = save.muted;
+    saved.settings.muted = !saved.settings.muted;
     audio.stop();
-    writeSave(save);
-    txt("mute", save.muted ? "الصوت: مكتوم" : "الصوت: يعمل");
+    configure();
   });
+  document
+    .querySelector("#resetAsk")!
+    .addEventListener("click", () => show("resetConfirm", true));
   document.querySelector("#resetSave")!.addEventListener("click", () => {
-    save.best = 0;
-    save.muted = false;
-    settings.value = "medium";
-    audio.muted = false;
-    quality();
-    txt("best", 0);
-    txt("mute", "الصوت: يعمل");
-    toast("تمت إعادة الضبط");
-  });
-  function start() {
-    audio.unlock();
-    audio.stop();
-    npcs.forEach((n) => n.dispose());
-    npcs = [];
-    effects.forEach((e) => e.mesh.dispose());
-    effects = [];
-    round.reset();
-    started = true;
-    ended = false;
+    saved = fresh();
+    saveProgress(saved);
+    mission = null;
     paused = false;
-    peakCombo = 0;
-    time = 0;
-    cooldown = 0;
-    punchAge = -1;
-    jumpV = jumpY = 0;
-    nextSpawn = 0.8;
-    player.root.position.set(0, 0, -5);
-    player.root.rotation.set(0, 0, 0);
-    collider.position.copyFrom(player.root.position);
+    finished = false;
+    show("paused", false);
+    qualitySelect.value = "medium";
+    outfitSelect.value = "white";
+    configure();
+    home();
+    show("resetConfirm", false);
+    toast("تم مسح تقدم اللعبة الجديدة");
+  });
+  function dialog(id: string) {
+    document.querySelector<HTMLDialogElement>("#" + id)!.showModal();
     input.clear();
+  }
+  for (const name of ["settings", "results", "levels"])
+    document.querySelector("#" + name)!.addEventListener("click", () => {
+      refreshMenu(saved);
+      dialog(name + "Dialog");
+    });
+  document
+    .querySelector("#pauseSettings")!
+    .addEventListener("click", () => dialog("settingsDialog"));
+  document.querySelector("#stageCards")!.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>(
+      "[data-stage]",
+    );
+    if (b) {
+      document.querySelector<HTMLDialogElement>("#levelsDialog")!.close();
+      start(Number(b.dataset.stage));
+    }
+  });
+  const coinMat = material(scene, "dinars", "#f5c448"),
+    billMat = material(scene, "bill", "#e27459"),
+    markerMat = material(scene, "interact-marker", "#7fc99c");
+  coinMat.emissiveColor = new Color3(0.23, 0.13, 0.01);
+  function cleanup() {
+    markers.forEach((m) => {
+      m.mesh.material?.dispose();
+      m.mesh.dispose();
+    });
+    markers = [];
+    runnerMeshes.forEach((m) => m.dispose());
+    runnerMeshes.clear();
+    runner = [];
+  }
+  function marker(id: string, name: string, x: number, z: number) {
+    const sign = label(scene, name, 2.05, 0.65, "#ffefca", "#284e48");
+    sign.position.set(x, 3.1, z);
+    sign.billboardMode = 2;
+    markers.push({ mesh: sign, id, x, z });
+  }
+  function saveSession() {
+    if (mission && mission.status === "playing") {
+      saved.resume = mission.snapshot();
+      saveProgress(saved);
+    }
+  }
+  function start(stage: number, resume = false) {
+    cleanup();
+    document
+      .querySelectorAll("dialog[open]")
+      .forEach((d) => (d as HTMLDialogElement).close());
+    mission =
+      resume && saved.resume
+        ? Mission.restore(saved.resume)
+        : new Mission(stage);
+    paused = finished = false;
+    jump = jumpV = poseAge = 0;
+    lastWave = Math.floor(mission.elapsed / 22);
+    player.root.rotation.set(0, 0, 0);
+    player.root.position.set(0, 0, -17);
     input.yaw = 0;
-    input.pitch = 0.42;
+    input.pitch = 0.35;
+    input.clear();
     input.active = true;
     for (const id of ["menu", "end", "paused"]) show(id, false);
     show("hud", true);
+    show("objective", true);
     show("controls", true);
-    toast("الراتب ثابت… خل نشوف السوق!");
+    audio.unlock();
+    if (mission.stage === 2) audio.say("صعد الدولار");
+    if (mission.stage === 4) audio.say("الراتب بعده ثابت");
+    if (mission.stage === 5) audio.tone("car");
+    enemy.root.setEnabled(mission.stage === 2);
+    if (mission.stage === 1) {
+      for (const g of goods)
+        if (!mission.selected.has(g.id))
+          marker(g.id, g.name + " • " + money(mission.price(g.id)), g.x, g.z);
+    } else if (mission.stage === 2) {
+      runner = runnerItems();
+      for (const item of runner) {
+        item.taken =
+          item.kind === "coin"
+            ? mission.wallet.ledger.some((e) => e.id === item.id)
+            : mission.selected.has(item.id);
+        const mesh =
+          item.kind === "coin"
+            ? MeshBuilder.CreateCylinder(
+                item.id,
+                { height: 0.12, diameter: 0.65, tessellation: 12 },
+                scene,
+              )
+            : MeshBuilder.CreateBox(
+                item.id,
+                { width: 1.3, height: 1.25, depth: 0.32 },
+                scene,
+              );
+        mesh.material = item.kind === "coin" ? coinMat : billMat;
+        mesh.setEnabled(!item.taken);
+        runnerMeshes.set(item.id, mesh);
+      }
+      player.root.position.set(0, 0, -19);
+    } else {
+      const p = destinations[mission.stage];
+      marker("destination", "✋ " + mission.config.place, p.x, p.z);
+    }
+    camera.position.copyFrom(
+      player.root.position.add(new Vector3(0, 3.5, -6.6)),
+    );
+    camera.setTarget(player.root.position.add(new Vector3(0, 1.4, 0)));
+    saveSession();
+    toast(
+      mission.stage === 1
+        ? "اشتري الخمس مواد قبل موجة الغلاء!"
+        : mission.stage === 2
+          ? "غيّر المسار واقفز… اجمع 8 دنانير قبل خط النهاية!"
+          : "روح إلى " + mission.config.place + " واضغط تفاعل",
+    );
   }
-  function finish() {
-    if (ended) return;
-    ended = true;
-    round.running = false;
+  function home() {
+    saveSession();
+    cleanup();
+    mission = null;
+    paused = false;
     input.active = false;
     input.clear();
+    show("menu", true);
+    for (const id of [
+      "end",
+      "paused",
+      "hud",
+      "objective",
+      "controls",
+      "target",
+    ])
+      show(id, false);
+    refreshMenu(saved);
+    enemy.root.setEnabled(true);
+  }
+  function finish() {
+    if (!mission || finished) return;
+    finished = true;
+    input.active = false;
+    input.clear();
+    choice.close();
     audio.stop();
-    save.best = Math.max(save.best, round.score);
-    writeSave(save);
-    txt("best", save.best);
-    txt("finalScore", round.score);
-    txt("finalCombo", `أعلى تتابع: ${peakCombo} • أعلى نتيجة: ${save.best}`);
+    saved.resume = null;
+    if (mission.status === "won") complete(saved, mission);
+    else saveProgress(saved);
+    txt("endBadge", mission.status === "won" ? "تحدي مكتمل ★" : "جرّب من جديد");
+    txt(
+      "endTitle",
+      mission.status === "won" ? "دبّرتها يا مواطن!" : "الغلاء غلبك هالمرة",
+    );
+    txt("endMessage", mission.message);
+    txt("finalScore", mission.score + " نقطة");
+    txt("endBalance", "الرصيد المتبقي: " + money(mission.wallet.balance));
+    show("next", mission.status === "won" && mission.stage < 8);
     show("end", true);
-    show("paused", false);
     show("controls", false);
     show("target", false);
+    audio.tone(mission.status === "won" ? "win" : "lose");
+    if (mission.status === "lost") audio.say("خلص الراتب وباقي الشهر");
+    refreshMenu(saved);
   }
   function pause() {
-    if (!round.running || ended) return;
+    if (!mission || finished || paused) return;
     paused = true;
     input.active = false;
     input.clear();
+    choice.close();
+    saveSession();
     audio.stop();
     show("paused", true);
   }
   document.querySelector("#pause")!.addEventListener("click", pause);
   document.querySelector("#resume")!.addEventListener("click", () => {
     paused = false;
+    show("paused", false);
     input.clear();
     input.active = true;
     audio.unlock();
-    show("paused", false);
   });
-  document.querySelector("#quit")!.addEventListener("click", finish);
-  for (const id of ["start", "restart"])
-    document.querySelector("#" + id)!.addEventListener("click", start);
-  document.querySelector("#home")!.addEventListener("click", () => {
-    started = false;
-    show("end", false);
-    show("menu", true);
-    show("hud", false);
-    show("target", false);
+  document.querySelector("#quit")!.addEventListener("click", home);
+  document.querySelector("#home")!.addEventListener("click", home);
+  document.querySelector("#start")!.addEventListener("click", () => start(1));
+  document.querySelector("#continue")!.addEventListener("click", () => {
+    if (saved.resume) start(saved.resume.stage, true);
+  });
+  document.querySelector("#restart")!.addEventListener("click", () => {
+    if (mission) start(mission.stage);
+  });
+  document.querySelector("#next")!.addEventListener("click", () => {
+    if (mission && mission.stage < 8) start(mission.stage + 1);
   });
   document.querySelector("#share")!.addEventListener("click", () => {
-    const url = new URL(location.href);
-    url.search = "";
-    url.hash = "";
+    if (!mission) return;
     window.open(
       "https://wa.me/?text=" +
         encodeURIComponent(
-          `جمعت ${round.score} نقطة في يوميات مواطن عراقي 3D 😅 صعد الدولار! جرّب اللعبة: ${url.href}`,
+          `المواطن ضد الغلاء 3D! نتيجتي في ${mission.config.title}: ${mission.score} نقطة. ${location.href.split("?")[0]}`,
         ),
       "_blank",
       "noopener,noreferrer",
     );
   });
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Escape" && !document.querySelector("dialog[open]")) pause();
+  });
   window.addEventListener("blur", pause);
+  window.addEventListener("pagehide", saveSession);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       pause();
@@ -222,70 +375,106 @@ function boot(engine: Engine) {
     } else engine.runRenderLoop(frame);
   });
   window.addEventListener("resize", () => engine.resize());
-  let effects: {
-    mesh: ReturnType<typeof MeshBuilder.CreateSphere>;
-    velocity: Vector3;
-    life: number;
-    max: number;
-  }[] = [];
-  function impact(p: Vector3) {
-    for (let i = 0; i < 18; i++) {
-      const star = i < 7,
-        m = star
-          ? MeshBuilder.CreatePolyhedron(
-              "comic-star",
-              { type: 1, size: 0.16 },
-              scene,
-            )
-          : MeshBuilder.CreateSphere(
-              "dust",
-              { diameter: 0.23, segments: 5 },
-              scene,
-            );
-      const mat = new StandardMaterial("fx", scene);
-      mat.diffuseColor = star
-        ? new Color3(1, 0.77, 0.14)
-        : new Color3(0.75, 0.66, 0.51);
-      mat.emissiveColor = star ? new Color3(0.5, 0.28, 0) : Color3.Black();
-      m.material = mat;
-      m.position.copyFrom(p);
-      effects.push({
-        mesh: m,
-        velocity: new Vector3(
-          (Math.random() - 0.5) * 4,
-          Math.random() * 3,
-          (Math.random() - 0.5) * 4,
-        ),
-        life: 0.7 + Math.random() * 0.6,
-        max: 1.3,
-      });
+  choice.addEventListener("close", () => input.clear());
+  document.querySelector("#choices")!.addEventListener("click", (e) => {
+    const button = (e.target as HTMLElement).closest<HTMLButtonElement>(
+      "[data-action]",
+    );
+    if (!button || button.disabled || !mission || paused || finished) return;
+    const accepted = mission.choose(button.dataset.action!);
+    if (!accepted) toast("الرصيد ما يكفي أو هذا الاختيار مستخدم");
+    else {
+      poseAge = 0.5;
+      audio.tone("buy");
+      saveSession();
+      if (mission.message) toast(mission.message);
+    }
+    if (mission.status !== "playing") finish();
+    else drawChoices(mission);
+  });
+  function nearest() {
+    const p = player.root.position;
+    return markers
+      .filter((m) => mission?.stage !== 1 || !mission.selected.has(m.id))
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z),
+      )[0];
+  }
+  function interact() {
+    if (!mission) return;
+    if (mission.stage === 2) {
+      toast("اجمع الدنانير وابتعد عن الفواتير — القفز ينفع!");
+      return;
+    }
+    const near = nearest();
+    if (
+      !near ||
+      Math.hypot(
+        near.x - player.root.position.x,
+        near.z - player.root.position.z,
+      ) > 2.6
+    ) {
+      toast("اقترب من علامة التفاعل أولاً");
+      return;
+    }
+    poseAge = 0.6;
+    if (mission.stage === 1) {
+      if (mission.buy(near.id)) {
+        near.mesh.setEnabled(false);
+        audio.tone("coin");
+        toast("اشتريت " + goods.find((g) => g.id === near.id)!.name);
+        saveSession();
+      } else toast(mission.message);
+      if (mission.status !== "playing") finish();
+    } else {
+      drawChoices(mission);
+      dialog("choiceDialog");
     }
   }
-  function spawn() {
-    if (npcs.length >= 2) return;
-    const p = spawnPoint(player.root.position, world.obstacles);
-    if (!p) return;
-    const def = definitions[serial % definitions.length];
-    const npc = new NPC(scene, new Vector3(p.x, 0, p.z), def, ++serial);
-    npcs.push(npc);
-    npc.root.getChildMeshes().forEach((m) => world.shadow.addShadowCaster(m));
-    audio.tone("spawn");
-    audio.announce();
-    toast("صعد الدولار! شوف صاحب اللافتة ↗");
+  function objective() {
+    if (!mission) return;
+    if (mission.stage === 1)
+      txt(
+        "objective",
+        `🛒 قائمة السوق: ${goods.map((g) => `${mission!.selected.has(g.id) ? "✓" : "○"} ${g.name}`).join(" • ")} | أسعار +${Math.round((mission.inflation - 1) * 100)}%`,
+      );
+    else if (mission.stage === 2)
+      txt(
+        "objective",
+        `💸 ${Math.floor(mission.distance)}/160 متر • ${mission.coins}/8 دنانير • قلوب ${"♥".repeat(Math.max(0, 3 - mission.hits))} | غيّر المسار واقفز فوق الفواتير`,
+      );
+    else
+      txt(
+        "objective",
+        mission.config.title +
+          " • " +
+          mission.config.subtitle +
+          " | اقترب من علامة " +
+          mission.config.place +
+          " واضغط تفاعل",
+      );
   }
-  const minimap = document.querySelector<HTMLCanvasElement>("#map")!,
-    ctx = minimap.getContext("2d")!;
-  let mapAge = 0;
+  const mapCanvas = document.querySelector<HTMLCanvasElement>("#map")!,
+    ctx = mapCanvas.getContext("2d")!;
   function map() {
     ctx.clearRect(0, 0, 130, 130);
-    ctx.fillStyle = "#d3b992";
+    ctx.fillStyle = "#dec49b";
     ctx.fillRect(0, 0, 130, 130);
-    ctx.fillStyle = "#7c8985";
-    ctx.fillRect(45, 0, 40, 130);
-    ctx.fillStyle = "#987e5d";
+    ctx.fillStyle = "#7a8c8d";
+    ctx.fillRect(43, 0, 44, 130);
+    ctx.fillStyle = "#ab8a65";
     for (const o of world.obstacles)
       ctx.fillRect(65 + o.x * 2 - o.w, 65 - o.z * 2 - o.d, o.w * 2, o.d * 2);
-    ctx.fillStyle = "#f9d24e";
+    ctx.fillStyle = "#5dc697";
+    markers
+      .filter((m) => m.mesh.isEnabled())
+      .forEach((m) => {
+        ctx.beginPath();
+        ctx.arc(65 + m.x * 2, 65 - m.z * 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    ctx.fillStyle = "#ffc94c";
     ctx.beginPath();
     ctx.arc(
       65 + player.root.position.x * 2,
@@ -295,184 +484,244 @@ function boot(engine: Engine) {
       Math.PI * 2,
     );
     ctx.fill();
-    ctx.fillStyle = "#dd4438";
-    for (const n of npcs.filter((n) => n.state === "idle")) {
-      ctx.beginPath();
-      ctx.arc(
-        65 + n.root.position.x * 2,
-        65 - n.root.position.z * 2,
-        3,
-        0,
-        Math.PI * 2,
+  }
+  const runnerOrigin = -19,
+    span = 40;
+  function updateRun(dt: number, mv: { x: number; z: number; run: boolean }) {
+    if (!mission) return;
+    mission.run(dt);
+    player.root.position.x = Math.max(
+      -3.5,
+      Math.min(3.5, player.root.position.x + mv.x * dt * 5.5),
+    );
+    const previousZ = player.root.position.z;
+    const z = runnerOrigin + (mission.distance % span);
+    if (Math.abs(z - previousZ) > 20) camera.position.z += z - previousZ;
+    player.root.position.z = z;
+    player.root.rotation.y = 0;
+    for (const item of runner) {
+      const mesh = runnerMeshes.get(item.id)!;
+      const delta = item.distance - mission.distance;
+      mesh.position.set(
+        laneX(item.lane),
+        item.kind === "coin" ? 1.1 : 0.65,
+        z + delta,
       );
-      ctx.fill();
+      mesh.setEnabled(!item.taken && delta > -2 && delta < 28);
+      if (item.kind === "coin") mesh.rotation.z = time * 2;
+      if (touching(item, mission.distance, player.root.position.x, jump)) {
+        item.taken = true;
+        mesh.setEnabled(false);
+        if (item.kind === "coin") {
+          mission.collect(item.id);
+          audio.tone("coin");
+        } else {
+          mission.collision(item.id);
+          audio.tone("lose");
+          toast("فاتورة مفاجئة! ارفع رجلك واقفز");
+        }
+      }
     }
+    enemy.root.position.set(Math.sin(time * 0.7) * 2, 0, z + 6);
+    enemy.root.rotation.y = Math.PI;
+    enemy.animate(time);
+    if (mission.status !== "playing") finish();
   }
   function frame() {
     try {
-      const dt = Math.min(0.04, engine.getDeltaTime() / 1000);
-      if (started && !paused && round.running) {
-        time += dt;
-        round.tick(dt);
-        cooldown = Math.max(0, cooldown - dt);
-        nextSpawn -= dt;
-        if (nextSpawn <= 0) {
-          spawn();
-          nextSpawn = round.interval();
-        }
-        const mv = input.movement(),
-          length = Math.hypot(mv.x, mv.z);
-        if (length > 0.08) {
-          const angle = Math.atan2(mv.x, mv.z) + input.yaw,
-            dir = new Vector3(Math.sin(angle), 0, Math.cos(angle)),
-            speed = (mv.run ? 6 : 3.3) * Math.min(1, length);
-          const proposed = player.root.position.add(dir.scale(dt * speed));
-          if (clearPoint(proposed, world.obstacles, 0.43)) {
-            collider.position.copyFrom(player.root.position);
-            collider.position.y = 0;
-            collider.moveWithCollisions(dir.scale(dt * speed));
-            player.root.position.x = collider.position.x;
-            player.root.position.z = collider.position.z;
+      const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
+      time += dt;
+      frameCount++;
+      const modal = !!document.querySelector("dialog[open]");
+      let moving = false,
+        running = false,
+        pose: "interact" | "celebrate" | "sad" | null = null;
+      if (mission) {
+        if (!paused && !finished && !modal) {
+          input.active = true;
+          mission.tick(dt);
+          const mv = input.movement(),
+            l = Math.hypot(mv.x, mv.z);
+          running = mv.run;
+          moving = l > 0.08;
+          if (input.consume("jump") && jump === 0) {
+            jumpV = 6;
+            audio.tone("jump");
           }
-          player.root.rotation.y = angle;
-        }
-        if (input.consume("jump") && jumpY === 0) {
-          jumpV = 6;
-          audio.tone("jump");
-        }
-        jumpV -= dt * 17;
-        jumpY = Math.max(0, jumpY + jumpV * dt);
-        if (jumpY === 0) jumpV = 0;
-        player.root.position.y = jumpY;
-        const active = npcs.filter((n) => n.state === "idle");
-        const closest = active.sort(
-          (a, b) =>
-            Vector3.DistanceSquared(a.root.position, player.root.position) -
-            Vector3.DistanceSquared(b.root.position, player.root.position),
-        )[0];
-        if (input.consume("interact"))
-          toast(
-            closest &&
-              Vector3.Distance(closest.root.position, player.root.position) < 4
-              ? "أبو الدولار: السوق صاعد والراتب نايم!"
-              : "اقترب من صاحب اللافتة حتى تتفاعل",
-          );
-        if (input.consume("punch") && cooldown === 0) {
-          cooldown = 0.7;
-          punchAge = 0;
-          const target = active.find((n) =>
-            canHit(
-              player.root.position,
-              n.root.position,
-              player.root.rotation.y,
-            ),
-          );
+          jumpV -= dt * 17;
+          jump = Math.max(0, jump + jumpV * dt);
+          if (!jump) jumpV = 0;
+          player.root.position.y = jump;
+          if (mission.stage === 2) {
+            moving = running = true;
+            input.yaw = 0;
+            updateRun(dt, mv);
+          } else if (moving) {
+            const angle = Math.atan2(mv.x, mv.z) + input.yaw,
+              dir = new Vector3(Math.sin(angle), 0, Math.cos(angle)),
+              speed = (running ? 5.7 : 3.5) * Math.min(l, 1);
+            const proposed = player.root.position.add(dir.scale(dt * speed));
+            if (clearPoint(proposed, world.obstacles, 0.42)) {
+              collider.position.set(
+                player.root.position.x,
+                0,
+                player.root.position.z,
+              );
+              collider.moveWithCollisions(dir.scale(dt * speed));
+              player.root.position.x = collider.position.x;
+              player.root.position.z = collider.position.z;
+            }
+            player.root.rotation.y = angle;
+          }
+          if (input.consume("interact")) interact();
+          poseAge = Math.max(0, poseAge - dt);
+          if (poseAge > 0) pose = "interact";
+          stepAge += dt;
+          if (moving && jump === 0 && stepAge > 0.3) {
+            stepAge = 0;
+            audio.tone("step");
+          }
           if (
-            target &&
-            jumpY < 0.9 &&
-            target.hit(target.root.position.subtract(player.root.position)) &&
-            round.hit(target.id)
+            mission.stage === 1 &&
+            Math.floor(mission.elapsed / 22) > lastWave
           ) {
-            impact(target.root.position.add(new Vector3(0, 1.7, 0)));
-            audio.tone("hit");
-            peakCombo = Math.max(peakCombo, round.combo);
-            toast(
-              [
-                "راجدي عالغلاء! +100",
-                "الراتب يتفرج… +100",
-                "خفّف علينا أبو الدولار! +100",
-              ][round.credited.size % 3],
+            lastWave = Math.floor(mission.elapsed / 22);
+            toast("↗ موجة غلاء افتراضية! ولك شنو هالأسعار؟");
+            audio.say("ولك شنو هالأسعار");
+            for (const mark of markers.filter(
+              (m) => !mission!.selected.has(m.id),
+            )) {
+              const g = goods.find((g) => g.id === mark.id)!;
+              mark.mesh.material?.dispose();
+              mark.mesh.dispose();
+              const freshSign = label(
+                scene,
+                g.name + " • " + money(mission.price(g.id)) + " ↗",
+                2.05,
+                0.65,
+                "#ffefca",
+                "#c44934",
+              );
+              freshSign.position.set(mark.x, 3.1, mark.z);
+              freshSign.billboardMode = 2;
+              mark.mesh = freshSign;
+            }
+          }
+          saveAge += dt;
+          if (saveAge > 2) {
+            saveAge = 0;
+            saveSession();
+          }
+          if (mission.status !== "playing") finish();
+        } else {
+          input.active = false;
+          input.clear();
+        }
+        if (finished) pose = mission.status === "won" ? "celebrate" : "sad";
+        player.animate(time, moving, running, jump > 0, pose);
+        txt("balance", money(mission.wallet.balance));
+        txt("score", mission.score + " نقطة");
+        txt("time", Math.ceil(mission.remaining));
+        objective();
+        if (!finished && !paused && !modal && mission.stage !== 2) {
+          const near = nearest();
+          if (near) {
+            const d = Math.hypot(
+              near.x - player.root.position.x,
+              near.z - player.root.position.z,
             );
-            shake = 0.15;
-          } else toast("اقترب وواجه صاحب اللافتة!");
-        }
-        if (punchAge >= 0) {
-          punchAge += dt / 0.5;
-          if (punchAge > 1) punchAge = -1;
-        }
-        player.animate(time, length > 0.08, mv.run, punchAge, jumpY > 0.05);
-        npcs = npcs.filter((n) => {
-          if (n.update(dt, time, player.root.position)) {
-            impact(n.root.position.add(new Vector3(0, 0.3, 0)));
-            n.dispose();
-            return false;
-          }
-          return true;
-        });
-        effects = effects.filter((e) => {
-          e.life -= dt;
-          if (e.life <= 0) {
-            e.mesh.material?.dispose();
-            e.mesh.dispose();
-            return false;
-          }
-          e.velocity.y -= dt * 5;
-          e.mesh.position.addInPlace(e.velocity.scale(dt));
-          e.mesh.scaling.setAll(e.life / e.max);
-          return true;
-        });
-        txt("score", round.score);
-        txt("time", Math.ceil(round.remaining));
-        txt("combo", round.combo > 1 ? "تتابع ×" + round.combo : "");
-        show("target", !!closest);
-        if (closest) {
-          const delta = closest.root.position.subtract(player.root.position);
-          const relative = Math.atan2(delta.x, delta.z) - input.yaw;
-          txt(
-            "target",
-            (Math.abs(relative) > 0.8
-              ? Math.sin(relative) > 0
-                ? "يمين ↗ "
-                : "↖ يسار "
-              : "↑ أمامك ") +
-              (canHit(
-                player.root.position,
-                closest.root.position,
-                player.root.rotation.y,
-              )
-                ? "اضغط راجدي!"
-                : Math.round(delta.length()) + " متر"),
-          );
-        }
-        mapAge += dt;
-        if (mapAge > 0.15) {
-          mapAge = 0;
+            show("target", true);
+            txt(
+              "target",
+              d <= 2.6
+                ? "✋ تفاعل E"
+                : "↗ " +
+                    Math.round(d) +
+                    " متر إلى " +
+                    (mission.stage === 1
+                      ? goods.find((g) => g.id === near.id)!.name
+                      : mission.config.place),
+            );
+          } else show("target", false);
+        } else show("target", false);
+        lastMap += dt;
+        if (lastMap > 0.2) {
+          lastMap = 0;
           map();
         }
-        if (!round.running) finish();
+      } else {
+        player.root.position.set(-0.6, 0, -9 + Math.sin(time * 0.18) * 4);
+        player.root.rotation.y = 0;
+        player.animate(time, true, true, false, null);
+        enemy.root.position.set(0.6, 0, player.root.position.z - 2.7);
+        enemy.root.rotation.y = 0;
+        enemy.animate(time);
       }
-      const target = player.root.position.add(new Vector3(0, 1.35, 0)),
-        distance = 6.2;
-      const offset = new Vector3(
-        -Math.sin(input.yaw) * distance,
-        2 + input.pitch * 3,
-        -Math.cos(input.yaw) * distance,
-      );
-      const ray = new Ray(target, offset.normalizeToNew(), offset.length());
-      const hit = scene.pickWithRay(
-        ray,
-        (m) => m.checkCollisions && m !== collider,
-      );
-      let desired = target.add(offset);
+      const focus = player.root.position.add(new Vector3(0, 1.4, 0)),
+        offset = mission
+          ? new Vector3(
+              -Math.sin(input.yaw) * 6.6,
+              2.2 + input.pitch * 2.8,
+              -Math.cos(input.yaw) * 6.6,
+            )
+          : new Vector3(-5.8, 2.5, 5.5);
+      const ray = new Ray(focus, offset.normalizeToNew(), offset.length()),
+        hit = scene.pickWithRay(
+          ray,
+          (m) => m.checkCollisions && m !== collider,
+        );
+      let desired = focus.add(offset);
       if (hit?.hit && hit.pickedPoint)
-        desired = hit.pickedPoint.subtract(ray.direction.scale(0.4));
+        desired = hit.pickedPoint.subtract(ray.direction.scale(0.35));
       camera.position = Vector3.Lerp(
         camera.position,
         desired,
-        Math.min(1, dt * 9),
+        Math.min(1, dt * 8),
       );
-      shake = Math.max(0, shake - dt);
-      if (shake > 0) camera.position.x += (Math.random() - 0.5) * shake;
-      camera.setTarget(target);
+      camera.setTarget(focus);
+      if (saved.settings.quality !== "high" && frameCount % 15 === 0) {
+        for (const detail of extra.details) {
+          const distant =
+            Vector3.Distance(detail.position, player.root.position) > 30;
+          detail
+            .getChildMeshes()
+            .filter((m) => m.name === "market-food")
+            .forEach((m, i) =>
+              m.setEnabled(
+                !distant && (saved.settings.quality !== "low" || i % 2 === 0),
+              ),
+            );
+        }
+      }
       scene.render();
-      if (scene.isReady()) show("loading", false);
     } catch (e) {
       engine.stopRenderLoop();
-      txt("fatalText", String(e));
-      show("fatal", true);
-      show("loading", false);
+      fatal(e);
     }
   }
-  let shake = 0;
   engine.runRenderLoop(frame);
+  progress(58, "الشخصيات والتحكم جاهزة");
+  try {
+    await player.load((loaded, total) => {
+      if (total > 0)
+        progress(
+          58 + Math.min(20, (loaded / total) * 20),
+          "تحميل نموذج المواطن GLB",
+        );
+      else
+        txt(
+          "loadText",
+          "تحميل نموذج المواطن: " + Math.round(loaded / 1024) + " KB",
+        );
+    });
+    progress(82, "تم تحميل نموذج المواطن وحركاته");
+  } catch {
+    progress(82, "نموذج احتياطي جاهز");
+    toast("تعذر تحميل GLB؛ الشخصية الأصلية الاحتياطية تعمل");
+  }
+  configure();
+  await scene.whenReadyAsync();
+  progress(100, "المشهد والخامات جاهزة");
+  show("loading", false);
+  show("menu", true);
 }

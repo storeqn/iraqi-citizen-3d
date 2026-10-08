@@ -13,9 +13,10 @@ export class Input {
     window.addEventListener("keydown", (e) => {
       if (["Space", "ArrowUp", "ArrowDown"].includes(e.code))
         e.preventDefault();
+      if (!this.active) return;
       this.keys.add(e.code);
       if (!e.repeat) {
-        if (e.code === "KeyE") this.punch = true;
+        if (e.code === "KeyE") this.interact = true;
         if (e.code === "Space") this.jump = true;
         if (e.code === "KeyF") this.interact = true;
       }
@@ -79,7 +80,7 @@ export class Input {
     };
     stick.addEventListener("pointerup", release);
     stick.addEventListener("pointercancel", release);
-    for (const name of ["punch", "jump", "interact"] as const)
+    for (const name of ["jump", "interact"] as const)
       document
         .querySelector("#" + name)!
         .addEventListener("pointerdown", (e) => {

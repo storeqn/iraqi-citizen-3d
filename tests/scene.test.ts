@@ -79,3 +79,52 @@ test("bundled original GLB loads with all four named animation groups", async ()
   scene.dispose();
   engine.dispose();
 });
+test("new city expansion has reachable interactions and a fictional dollar", async () => {
+  const { expansion, dollar } = await import("../src/world/expansion");
+  const { destinations, goods } = await import("../src/data/missions");
+  const { clearPoint } = await import("../src/gameplay/rules");
+  const engine = new NullEngine(),
+    scene = new Scene(engine);
+  const world = city(scene);
+  expansion(scene, world.obstacles);
+  const d = dollar(scene);
+  d.animate(1);
+  assert.ok(d.root.getChildMeshes().length >= 12);
+  for (const p of [...Object.values(destinations), ...goods])
+    assert.ok(clearPoint(p, world.obstacles, 0.4), JSON.stringify(p));
+  scene.dispose();
+  engine.dispose();
+});
+test("citizen GLB has all seven named player animations", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { SceneLoader } = await import("@babylonjs/core/Loading/sceneLoader");
+  await import("@babylonjs/loaders/glTF");
+  const b = await readFile(
+    new URL(
+      "../public/models/characters/citizen-original.glb",
+      import.meta.url,
+    ),
+  );
+  const engine = new NullEngine(),
+    scene = new Scene(engine);
+  const result = await SceneLoader.ImportMeshAsync(
+    "",
+    "",
+    "data:model/gltf-binary;base64," + b.toString("base64"),
+    scene,
+    undefined,
+    ".glb",
+  );
+  assert.deepEqual(result.animationGroups.map((a) => a.name).sort(), [
+    "Celebrate",
+    "Idle",
+    "Interact",
+    "Jump",
+    "Run",
+    "Sad",
+    "Walk",
+  ]);
+  assert.ok(result.meshes.some((m) => m.name.includes("citizen-moustache")));
+  scene.dispose();
+  engine.dispose();
+});

@@ -72,6 +72,15 @@ export function character(scene: Scene, suit = false) {
     );
   }
   box(scene, "mouth", 0, 1.8, 0.29, 0.22, 0.03, 0.03, hair, body);
+  if (!suit)
+    sphere(
+      scene,
+      "citizen-moustache",
+      new Vector3(0, 1.89, 0.307),
+      new Vector3(0.26, 0.07, 0.055),
+      hair,
+      body,
+    );
   if (suit) {
     sphere(
       scene,
@@ -172,6 +181,18 @@ export function character(scene: Scene, suit = false) {
       body.position.y = moving
         ? Math.abs(Math.sin(t * 8)) * 0.045
         : Math.sin(t * 2) * 0.018;
+    },
+    pose(kind: "interact" | "celebrate" | "sad", t: number) {
+      body.rotation.z = kind === "sad" ? 0.08 : 0;
+      body.rotation.x = kind === "sad" ? 0.18 : 0;
+      arms[0].rotation.z = kind === "celebrate" ? -2.3 : 0;
+      arms[1].rotation.z = kind === "celebrate" ? 2.3 : 0;
+      if (kind === "interact")
+        arms[1].rotation.x = -0.8 - Math.sin(t * 6) * 0.1;
+    },
+    resetPose() {
+      body.rotation.set(0, 0, 0);
+      arms.forEach((a) => (a.rotation.z = 0));
     },
     dispose() {
       root.dispose(false, true);

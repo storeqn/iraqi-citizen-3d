@@ -97,7 +97,7 @@ export function sphere(
 ) {
   const m = MeshBuilder.CreateSphere(
     name,
-    { diameter: 1, segments: 10 },
+    { diameter: 1, segments: 16 },
     scene,
   );
   m.position = p;

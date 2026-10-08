@@ -446,3 +446,227 @@ select {
     height: 70px;
   }
 }
+/* Citizen versus inflation: warm market palette with unobstructed play controls. */
+#loading {
+  inset: 0;
+  transform: none;
+  top: 0;
+  left: 0;
+  border-radius: 0;
+  z-index: 30;
+  background: #173c3c;
+}
+.menu h2 {
+  font-size: clamp(18px, 2vw, 26px);
+}
+progress {
+  width: 100%;
+  height: 14px;
+  accent-color: #f4c24d;
+}
+.menu #continue {
+  width: 100%;
+  margin-bottom: 12px;
+  color: #f5d782;
+}
+#objective {
+  position: absolute;
+  top: calc(110px + env(safe-area-inset-top));
+  right: 16px;
+  max-width: min(450px, 82vw);
+  padding: 12px 17px;
+  background: #173c3ce6;
+  border-radius: 16px;
+  line-height: 1.8;
+  font-size: 13px;
+  pointer-events: none;
+}
+#target {
+  top: auto;
+  bottom: calc(170px + env(safe-area-inset-bottom));
+  font-size: 14px;
+}
+#hud .score strong {
+  font-size: 22px;
+}
+.actions {
+  grid-template-columns: 64px 80px;
+}
+.actions #interact {
+  width: 80px;
+  height: 80px;
+  background: #f4c24d;
+  color: #173c3c;
+  font-size: 30px;
+}
+.actions #jump {
+  width: 64px;
+  height: 64px;
+}
+dialog.wide {
+  width: min(860px, 94vw);
+  max-height: 88vh;
+}
+.dialog-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.dialog-heading h2 {
+  font-size: 24px;
+}
+.stage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.stage-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 16px;
+  overflow: hidden;
+  text-align: right;
+  align-items: stretch;
+  gap: 8px;
+  background: #ffffff0c;
+}
+.stage-card small,
+.stage-card strong,
+.stage-card span,
+.stage-card b {
+  padding: 0 12px;
+}
+.stage-card small {
+  font-size: 10px;
+  color: #d7ccb1;
+}
+.stage-card strong {
+  font-size: 15px;
+}
+.stage-card span {
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.6;
+}
+.stage-card b {
+  color: #f4c24d;
+  font-size: 10px;
+}
+.stage-art {
+  height: 115px;
+  background: var(--card-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stage-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+#choices {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+#choices button {
+  text-align: right;
+  padding: 14px;
+  background: #ffffff16;
+  min-height: 48px;
+}
+#choices button:disabled {
+  opacity: 0.3;
+}
+#ledger p {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+}
+#choiceDialog {
+  max-height: 82vh;
+  overflow: auto;
+}
+#resultsDialog {
+  max-height: 85vh;
+  overflow: auto;
+}
+.menu-row button {
+  min-height: 44px;
+}
+#settingsDialog label {
+  display: block;
+  margin-bottom: 14px;
+}
+#end .primary {
+  margin-bottom: 12px;
+}
+#end h2 {
+  font-size: 28px;
+}
+#finalScore {
+  font-size: 48px;
+}
+#end .compact {
+  max-height: 92vh;
+  overflow: auto;
+}
+.overlay .compact {
+  max-width: 420px;
+}
+@media (max-width: 700px) {
+  .stage-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stage-art {
+    height: 110px;
+  }
+  #objective {
+    top: calc(100px + env(safe-area-inset-top));
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+  .menu h1 {
+    font-size: 42px;
+  }
+  #map {
+    width: 70px;
+    height: 70px;
+  }
+  #toast {
+    bottom: 40%;
+    font-size: 13px;
+  }
+  #hud .score strong {
+    font-size: 18px;
+  }
+}
+@media (max-height: 500px) {
+  #objective {
+    top: 90px;
+    max-width: 60vw;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+  .stage-art {
+    height: 75px;
+  }
+  .stage-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  #target {
+    bottom: 115px;
+  }
+  .menu #continue {
+    padding: 8px;
+    margin-bottom: 8px;
+  }
+  .menu h1 {
+    font-size: 30px;
+  }
+  .menu h2 {
+    font-size: 18px;
+  }
+}

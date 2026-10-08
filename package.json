@@ -1,6 +1,6 @@
 {
   "name": "iraqi-citizen-3d",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "check": "tsc --noEmit",
     "build": "npm run check && vite build",
     "test": "node --import tsx --test tests/*.test.ts",
-    "assets": "node --import tsx scripts/export-character.ts"
+    "assets": "node --import tsx scripts/export-citizen.ts"
   },
   "dependencies": {
     "@babylonjs/core": "^8.0.0",

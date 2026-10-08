@@ -7,33 +7,40 @@ export class Audio {
       void this.ctx.resume();
     } catch {}
   }
-  tone(kind: "spawn" | "hit" | "jump") {
+  tone(kind: "coin" | "step" | "car" | "jump" | "win" | "lose" | "buy") {
     if (this.muted || !this.ctx) return;
     const t = this.ctx.currentTime,
       o = this.ctx.createOscillator(),
       g = this.ctx.createGain();
-    o.type = kind === "hit" ? "triangle" : "sine";
-    o.frequency.setValueAtTime(
-      kind === "hit" ? 250 : kind === "jump" ? 400 : 650,
-      t,
-    );
+    o.type =
+      kind === "car" ? "sawtooth" : kind === "lose" ? "triangle" : "sine";
+    const frequency = {
+      coin: 900,
+      step: 65,
+      car: 140,
+      jump: 380,
+      win: 600,
+      lose: 220,
+      buy: 700,
+    }[kind];
+    o.frequency.setValueAtTime(frequency, t);
     o.frequency.exponentialRampToValueAtTime(
-      kind === "hit" ? 45 : 950,
-      t + 0.19,
+      kind === "lose" ? 65 : kind === "step" ? 40 : frequency * 1.5,
+      t + 0.15,
     );
-    g.gain.setValueAtTime(0.13, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    g.gain.setValueAtTime(kind === "step" ? 0.035 : 0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.23);
     o.connect(g);
     g.connect(this.ctx.destination);
     o.start(t);
-    o.stop(t + 0.27);
+    o.stop(t + 0.25);
   }
-  announce() {
+  say(text: string) {
     if (this.muted || !("speechSynthesis" in window)) return;
-    const v = new SpeechSynthesisUtterance("صعد الدولار");
+    const v = new SpeechSynthesisUtterance(text);
     v.lang = "ar-IQ";
-    v.rate = 1.1;
-    v.volume = 0.65;
+    v.rate = 1.05;
+    v.volume = 0.6;
     speechSynthesis.cancel();
     speechSynthesis.speak(v);
   }
